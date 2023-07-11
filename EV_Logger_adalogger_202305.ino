@@ -81,6 +81,8 @@ void Accsetup(){
   }
   //ADXL345あり？ セットアップ
   if(bAccExit){
+    SetOffsetRegADXL345();
+    //ResetOffsetRegADXL345();
     //FIFO OFF (Bypass設定）
     uint8_t val = 0;
     WriteReg(ADXL345_FIFO_CTL,val);
@@ -410,6 +412,7 @@ char strData4[8];
 //Displayのセットアップ
 void SetupDisplay(){
   u8g2.begin();
+  u8g2.setContrast(0x4F);   //the brightness for the display,0x00-0xFF
   u8g2.setBusClock(400000);
   //u8g2.setDrawColor(2);//set pixel value
 }

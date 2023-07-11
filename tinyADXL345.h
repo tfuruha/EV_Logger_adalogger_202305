@@ -1,3 +1,4 @@
+#include "delay.h"
 //refer to https://tekuteku-embedded.xyz/2022/09/15/adxl345/
 //File Name:tinyADXL345.h
 //architecture: ESP32
@@ -51,24 +52,24 @@ typedef enum {
   Range16g  = 0b11
 } adxl345_range_t;
 
-//Data Rate Bits
+//Output Data Rate Bits
 typedef enum {
-  DATARATE_3200_HZ = 0b1111, //< 1600Hz Bandwidth   140uA IDD
-  DATARATE_1600_HZ = 0b1110, //<  800Hz Bandwidth    90uA IDD
-  DATARATE_800_HZ  = 0b1101, //<  400Hz Bandwidth   140uA IDD
-  DATARATE_400_HZ  = 0b1100, //<  200Hz Bandwidth   140uA IDD
-  DATARATE_200_HZ  = 0b1011, //<  100Hz Bandwidth   140uA IDD
-  DATARATE_100_HZ  = 0b1010, //<   50Hz Bandwidth   140uA IDD
-  DATARATE_50_HZ   = 0b1001, //<   25Hz Bandwidth    90uA IDD
-  DATARATE_25_HZ   = 0b1000, //< 12.5Hz Bandwidth    60uA IDD
-  DATARATE_12_5_HZ = 0b0111, //< 6.25Hz Bandwidth    50uA IDD
-  DATARATE_6_25HZ  = 0b0110, //< 3.13Hz Bandwidth    45uA IDD
-  DATARATE_3_13_HZ = 0b0101, //< 1.56Hz Bandwidth    40uA IDD
-  DATARATE_1_56_HZ = 0b0100, //< 0.78Hz Bandwidth    34uA IDD
-  DATARATE_0_78_HZ = 0b0011, //< 0.39Hz Bandwidth    23uA IDD
-  DATARATE_0_39_HZ = 0b0010, //< 0.20Hz Bandwidth    23uA IDD
-  DATARATE_0_20_HZ = 0b0001, //< 0.10Hz Bandwidth    23uA IDD
-  DATARATE_0_10_HZ = 0b0000  //< 0.05Hz Bandwidth    23uA IDD (default value)
+  DATARATE_3200_HZ = 0b1111, //F < 1600Hz Bandwidth   140uA IDD
+  DATARATE_1600_HZ = 0b1110, //E <  800Hz Bandwidth    90uA IDD
+  DATARATE_800_HZ  = 0b1101, //D <  400Hz Bandwidth   140uA IDD
+  DATARATE_400_HZ  = 0b1100, //C <  200Hz Bandwidth   140uA IDD
+  DATARATE_200_HZ  = 0b1011, //B <  100Hz Bandwidth   140uA IDD
+  DATARATE_100_HZ  = 0b1010, //A <   50Hz Bandwidth   140uA IDD
+  DATARATE_50_HZ   = 0b1001, //9 <   25Hz Bandwidth    90uA IDD
+  DATARATE_25_HZ   = 0b1000, //8 < 12.5Hz Bandwidth    60uA IDD
+  DATARATE_12_5_HZ = 0b0111, //7 < 6.25Hz Bandwidth    50uA IDD
+  DATARATE_6_25HZ  = 0b0110, //6 < 3.13Hz Bandwidth    45uA IDD
+  DATARATE_3_13_HZ = 0b0101, //5 < 1.56Hz Bandwidth    40uA IDD
+  DATARATE_1_56_HZ = 0b0100, //4 < 0.78Hz Bandwidth    34uA IDD
+  DATARATE_0_78_HZ = 0b0011, //3 < 0.39Hz Bandwidth    23uA IDD
+  DATARATE_0_39_HZ = 0b0010, //2 < 0.20Hz Bandwidth    23uA IDD
+  DATARATE_0_20_HZ = 0b0001, //1 < 0.10Hz Bandwidth    23uA IDD
+  DATARATE_0_10_HZ = 0b0000  //0 < 0.05Hz Bandwidth    23uA IDD (default value)
 } adxl345_dataRate_t;
 
 float kgain = 0.004;  //Range16g
@@ -76,6 +77,15 @@ float kgain = 0.004;  //Range16g
 
 //指定のアドレスに値を書き込む関数
 void WriteReg(uint8_t addrs, uint8_t val)
+{
+  Wire.beginTransmission(ADXL345_I2CADDR_DEFAULT);
+  Wire.write(addrs);
+  Wire.write(val);
+  Wire.endTransmission(); 
+}
+
+//指定のアドレスに値を書き込む関数
+void WriteRegN(uint8_t addrs, int8_t val)
 {
   Wire.beginTransmission(ADXL345_I2CADDR_DEFAULT);
   Wire.write(addrs);
@@ -159,3 +169,71 @@ bool initADXL345(){
   Serial.println("ADXL345 is not avail.");
   return false;
 } 
+
+void ResetOffsetRegADXL345(){
+  //Weite to OFSTx REGISTER
+  WriteRegN(ADXL345_OFSX,0x00)  ;
+  WriteRegN(ADXL345_OFSY,0x00)  ;
+  WriteRegN(ADXL345_OFSZ,0x00)  ;  
+}
+
+void SetOffsetRegADXL345(){
+  int NumOfSmp = 128;
+  int AccX,AccY,AccZ;
+  int SumX = 0; float SumY = 0; float SumZ = 0;
+  uint8_t buf[6];
+  //Place Seonsor in X=0g, Y=0g, Z=1g
+  //Vs=ON, Vddio = ON
+  delayMicroseconds(1100); //WAIT 1.1ms
+  ResetOffsetRegADXL345();
+  WriteReg(ADXL345_BW_RATE,0x0A);     //power mode DateRate 200Hz
+  WriteReg(ADXL345_DATA_FORMAT,0x0B);  //16g 13bit mode
+  WriteReg(ADXL345_POWER_CTL,0x08);  //START Measurement
+  WriteReg(ADXL345_INT_ENABLE,0x80);  //ENABLE 
+  delay(20);  //wait 11.1ms
+  ReadReg(ADXL345_DATAX0,buf,6);
+  //take NumOfSmp data points
+  unsigned long tStart=micros(); 
+  for(int i=0;i<NumOfSmp;i++){
+    //Data Ready?
+    while(true){
+      uint8_t var = (ReadRegByte(ADXL345_INT_SOURCE)) & 0x80 ;
+      if(var) break;
+    }
+    ReadReg(ADXL345_DATAX0,buf,6);
+    AccX = two_complement((buf[1]<<8U | buf[0])&0x1FFF,13);
+    AccY = two_complement((buf[3]<<8U | buf[2])&0x1FFF,13);
+    AccZ = two_complement((buf[5]<<8U | buf[4])&0x1FFF,13);
+    SumX = SumX + AccX; SumY = SumY + AccY; SumZ = SumZ + AccZ;
+    delay(1);
+    //for debug
+    /* ***
+    Serial.print(AccX);  Serial.print(",");  
+    Serial.print(AccY);  Serial.print(",");  
+    Serial.print(AccZ);  Serial.println("");  
+     *** */
+  }
+  unsigned long tEnd=micros(); 
+  Serial.print(tStart);  Serial.print(","); 
+  Serial.print(tEnd);  Serial.println(","); 
+  //and Average
+  float AveX_0 = (float)SumX / (float)NumOfSmp;
+  float AveY_0 = (float)SumY / (float)NumOfSmp;
+  float AveZ_0 = (float)SumZ / (float)NumOfSmp;
+  //calcuralte  Calibration value
+  int8_t X_CAL=round(-(AveX_0/4.));
+  int8_t Y_CAL=round(-(AveY_0/4.));
+  int8_t Z_CAL=round(-1-((AveZ_0-255.)/4.));
+  //int8_t Z_CAL=-((AveZ_0)/4);
+  //for debug
+  /* *** */
+  Serial.print(X_CAL);  Serial.print(",");  
+  Serial.print(Y_CAL);  Serial.print(",");  
+  Serial.print(Z_CAL);  Serial.println("");  
+  /* *** */
+  //Weite to OFSTx REGISTER
+  WriteRegN(ADXL345_OFSX,X_CAL)  ;
+  WriteRegN(ADXL345_OFSY,Y_CAL)  ;
+  WriteRegN(ADXL345_OFSZ,Z_CAL)  ;  
+
+}
