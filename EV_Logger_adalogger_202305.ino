@@ -236,6 +236,7 @@ void initRotSpd(){
   ulCycleTime = INIT_INTERVAL;	//周期の初期値 速度計算を0にするため
   pinMode(SPD_IN_PIN,INPUT);  //入力ピンに設定、プルアップあり
   attachInterrupt(digitalPinToInterrupt(SPD_IN_PIN),IntSpdPls,FALLING ); //外部割込み(FALLING )で呼び出す
+  //detachInterrupt(digitalPinToInterrupt(SPD_IN_PIN));
   ulLastCntUS = 0;   //最初のパルス入力 (us)
   bPlsRcvd=false; //for debug
 }
@@ -325,14 +326,15 @@ float getVolt(float fADC){
 #define CurrScanPin A2
 #define NUMAVEBUFF 8
 #define NUMAVE 4
+int NumAdcSmp ; //ADC サンプリング数、電流積算したらクリア
 int AdcCurr[NUMAVEBUFF],AdcVolt[NUMAVEBUFF];  //移動平均用バッファ 最新が0
 //ADCの設定
 void setupADC(){
   analogReadResolution(12); //Use 12bits ADC
   for(int i=0;i<NUMAVE;i++){
-    AdcVolt[i] = 0;    AdcCurr[i] = 0;
+    AdcVolt[i] = 0;    AdcCurr[i] = 2047;
   }
-
+  NumAdcSmp = 0;
 }
 //ADC計測(変換は無し)
 void getADCVoltCUrr(){
@@ -344,15 +346,23 @@ void getADCVoltCUrr(){
   //0に変換値を入れる
   AdcVolt[0]=analogRead(VoltScanPin);
   AdcCurr[0]=analogRead(CurrScanPin);
+  NumAdcSmp++;
 }
+//平均化と実値変換
 void getADCtoVA(){
-  int SumAdcVolt = 0; int SumAdcCurr =0; 
-  for(int i=0;i<NUMAVE ;i++){
-    SumAdcVolt=AdcVolt[i] + SumAdcVolt;
-    SumAdcCurr=AdcCurr[i] + SumAdcCurr;
+  if(NumAdcSmp > NUMAVE-1){
+    NumAdcSmp = NUMAVE ;
+    int SumAdcVolt = 0; int SumAdcCurr =0; 
+    for(int i=0;i<NUMAVE ;i++){
+      SumAdcVolt=AdcVolt[i] + SumAdcVolt;
+      SumAdcCurr=AdcCurr[i] + SumAdcCurr;
+    }
+    fVolt = getVolt(( (float)SumAdcVolt /(float)NUMAVE ));
+    fCurr = getCurr(( (float)SumAdcCurr /(float)NUMAVE ));
   }
-  fVolt = getVolt(( (float)SumAdcVolt /(float)NUMAVE ));
-  fCurr = getCurr(( (float)SumAdcCurr /(float)NUMAVE ));
+  else{
+    fVolt = 0.0;  fCurr = 0.0;
+  }
 
 }
 
@@ -372,12 +382,15 @@ void setupIntegerCurr(){
 }
 
 void IntegerCurr(float fCurrI){
-	int iCurSubA = int(fCurrI*10.);		//電流値を0.1A単位の整数化
-	iIntCur += INT_CURR_CYCLE*iCurSubA;	//積算
-	if(iIntCur > INT_CURR_UPPER){		//上限処理
-		iIntCur = INT_CURR_UPPER;
-	}
-	iDspIntCurr = int(float(iIntCur)/36.);// [mAh]=[0.1As]*100/3600
+  if(NumAdcSmp > NUMAVE-1){
+    NumAdcSmp = 0;
+  	int iCurSubA = int(fCurrI*10.);		//電流値を0.1A単位の整数化
+	  iIntCur += INT_CURR_CYCLE*iCurSubA;	//積算
+	  if(iIntCur > INT_CURR_UPPER){		//上限処理
+		  iIntCur = INT_CURR_UPPER;
+	  }
+	  iDspIntCurr = int(float(iIntCur)/36.);// [mAh]=[0.1As]*100/3600
+  }
 	
 }
 //*****スイッチ入力処理******************************************* 
@@ -478,22 +491,24 @@ void tmr1S(){
 	iLineIndex=millis();//HWタイマカウンタの取り込み for debug
   cntAccScan=0;   //acc取得トリガ操作
   get_Accvalue(); //acc取得0msはここでget
-  tEndAcc=millis();  
+  //tEndAcc=millis();  
   getRotSpd();    //回転数取得
   getADCtoVA();   //Volt Curr実値換算
-  tEndADCtoVA=millis();
+  //tEndADCtoVA=millis();
   scanSwIn();     //SW入力スキャン
   IntegerCurr(fCurr);   //電流積算の初期化
-  tEndIntCur=millis();
-	ShowDisplay();  // LCD表示
-  tEndDisp=millis();	
+  //tEndIntCur=millis();
+  detachInterrupt(digitalPinToInterrupt(SPD_IN_PIN)); //外部割込み中断
+  ShowDisplay();  // LCD表示
+  //tEndDisp=millis();	
   mkDataRecord(); //書き出し用データ作成
-  tEndmkREC=millis();
+  //tEndmkREC=millis();
 	//SD書き出し
 	if(bSDAvail && iLineIndex>10){//SD 有&& 起動後10秒以降
 		WriteLogSD();
-    tEndSD=millis();
+    //tEndSD=millis();
 	}
+  attachInterrupt(digitalPinToInterrupt(SPD_IN_PIN),IntSpdPls,FALLING ); //外部割込み再開
 	WriteDebugTerm();	//シリアルに出す
   wdt_reset ( );//reset the WDT counter.
   LastObsTime=millis(); //計測タイマのリセット
@@ -544,7 +559,7 @@ void setup() {  // put your setup code here, to run once:
   LastMainTime=millis();  //1sタイマの初期値
   LastObsTime=millis();
 
-  //wdt_init ( WDT_CONFIG_PER_4K ); //Initialize the WDT with a timeout 4sec
+  wdt_init ( WDT_CONFIG_PER_4K ); //Initialize the WDT with a timeout 4sec
 }
 //************************ 
 unsigned long tStartGPS,tEndGPS;
