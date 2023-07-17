@@ -8,6 +8,8 @@
 #include <Wire.h>
 #endif
 
+//#define DEBUG_ADXL345
+
 //device address
 #define ADXL345_I2CADDR_DEFAULT (uint8_t)(0x53)  //SDO LO: 0x53, SDO HI: 0x1D
  
@@ -193,7 +195,9 @@ void SetOffsetRegADXL345(){
   delay(20);  //wait 11.1ms
   ReadReg(ADXL345_DATAX0,buf,6);
   //take NumOfSmp data points
+#if defined (DEBUG_ADXL345) 
   unsigned long tStart=micros(); 
+#endif // defined (DEBUG_ADXL345) 
   for(int i=0;i<NumOfSmp;i++){
     //Data Ready?
     while(true){
@@ -213,9 +217,11 @@ void SetOffsetRegADXL345(){
     Serial.print(AccZ);  Serial.println("");  
      *** */
   }
+#if defined (DEBUG_ADXL345) 
   unsigned long tEnd=micros(); 
   Serial.print(tStart);  Serial.print(","); 
   Serial.print(tEnd);  Serial.println(","); 
+#endif // defined (DEBUG_ADXL345) 
   //and Average
   float AveX_0 = (float)SumX / (float)NumOfSmp;
   float AveY_0 = (float)SumY / (float)NumOfSmp;
@@ -225,12 +231,12 @@ void SetOffsetRegADXL345(){
   int8_t Y_CAL=round(-(AveY_0/4.));
   int8_t Z_CAL=round(-1-((AveZ_0-255.)/4.));
   //int8_t Z_CAL=-((AveZ_0)/4);
+#if defined (DEBUG_ADXL345) 
   //for debug
-  /* *** */
   Serial.print(X_CAL);  Serial.print(",");  
   Serial.print(Y_CAL);  Serial.print(",");  
   Serial.print(Z_CAL);  Serial.println("");  
-  /* *** */
+#endif // defined (DEBUG_ADXL345) 
   //Weite to OFSTx REGISTER
   WriteRegN(ADXL345_OFSX,X_CAL)  ;
   WriteRegN(ADXL345_OFSY,Y_CAL)  ;

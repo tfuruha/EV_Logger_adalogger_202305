@@ -482,6 +482,21 @@ void ShowDisplay(void){
 
 }
 //******************************
+//表示の設定(初期画面)
+#include <U8x8lib.h> //lcd display 
+U8X8_SSD1309_128X64_NONAME0_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);
+void SetupBootDisp(){
+ 	u8x8.begin();//表示初期化
+	u8x8.setFlipMode(1);//方向指定
+  u8x8.setContrast(0x4F);
+	u8x8.setFont(u8x8_font_artossans8_r ) ;   // choose a Open Game Art Font Sans.
+  //u8x8.home();  //set Cursor to TOp-Left
+	u8x8.setCursor(0, 0);
+}
+void ClearBootDisp(){
+  u8x8.clearDisplay();
+}
+
 //************************************************ 
 //1秒毎に実行する処理
 unsigned long tEndAcc,tEndADCtoVA,tEndIntCur,tEndDisp,tEndmkREC,tEndSD;
@@ -520,25 +535,53 @@ void tmr1S(){
 void setup() {  // put your setup code here, to run once:
 	//setup debug port
 	Serial.begin(115200);//
-	while (!Serial && millis()<3000);//5secでタイムアウト
-  Accsetup(); //加速度センサの初期化
-  setupGPS(); //GPS Set
-  initRotSpd(); //スピード読込の初期化
-  setupIntegerCurr();   //電流積算の初期化
-  setupADC();   //ADCの初期化
-  setupSwIn();   //SW入力の初期化
+  SetupBootDisp();  //Boot Disp
+  //Wait Serial Setup 
+  u8x8.print("Ser:");
+  unsigned long SerWaitTm = millis() + 5000 ; //5secでタイムアウト
+  String StrSerRet = "not avail.";
+  while (millis()<SerWaitTm){
+    if(Serial){
+      StrSerRet = "avail.";
+      break;
+    } 
+  }
+  u8x8.println(StrSerRet);
 
-  
-	SetupDisplay();//setup Display
+  //Setup ACC 
+  u8x8.print("Acc:");
+  Accsetup(); //加速度センサの初期化
+  if(bAccExit)  u8x8.println("avail.");
+  else u8x8.println("not avail.");
+
+  //Setup GPS
+  u8x8.print("GPS Ser:");
+  setupGPS(); //GPS Set
+  SerWaitTm = millis() + 3000 ; //1.5secでタイムアウト
+  StrSerRet = "not avail.";
+  while (millis()<SerWaitTm){
+    if(Serial1.available() > 0){
+      StrSerRet = "avail.";  //受信が有ったら GPS接続有判定
+      break;
+    } 
+  }
+  u8x8.println(StrSerRet);
+
+  initRotSpd(); //スピード読込の初期化
+  setupADC();   //ADCの初期化
+  setupIntegerCurr();   //電流積算の初期化
+  setupSwIn();   //SW入力の初期化
 	
 	//SDカード初期化
 	iLineIndex=0;
 	Serial.println("SD-Card initialize...");
-	
+  u8x8.print("SD-Card:");
+
 	if(SD.begin(SPI_CS)){//CSピンを指定して、SDカード接続を開始
 	  //SDカードあり処理
 		bSDAvail=true;
 		Serial.println("Card is avail.");
+    u8x8.println("avail.");
 		File File1 = SD.open(LOGFILENAME, FILE_WRITE);
 		if(File1){
 			File1.println("Index,Volt,Curr,RotSpd,AccX,AccY,AccZ,BreakSW,Latitude,Longitude,Alt,GpsSpd,GpsDate,GpsTime");//ヘッダ行
@@ -547,19 +590,24 @@ void setup() {  // put your setup code here, to run once:
 	}else{
 		bSDAvail=false;
 		Serial.println("Card not readable!");
-		
+    u8x8.println("not avail.");		
 	}
-	// Interval in microsecs
+  /* 
 	cntTMR=1;
   while(millis()<3000){ //ACCの初期化待ちで3s
     delay(10);
   }
+  */
+	// Interval in microsecs
   b1SPassed=false;
-  
+  delay(2000);
+  ClearBootDisp();
+  //
+ 	SetupDisplay();//setup Display
+  LastObsTime=millis();  //計測タイマの初期値
   LastMainTime=millis();  //1sタイマの初期値
-  LastObsTime=millis();
 
-  wdt_init ( WDT_CONFIG_PER_4K ); //Initialize the WDT with a timeout 4sec
+  //wdt_init ( WDT_CONFIG_PER_4K ); //Initialize the WDT with a timeout 4sec
 }
 //************************ 
 unsigned long tStartGPS,tEndGPS;
